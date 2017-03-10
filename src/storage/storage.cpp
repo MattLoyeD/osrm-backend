@@ -11,6 +11,7 @@
 #include "partition/cell_storage.hpp"
 #include "partition/edge_based_graph_reader.hpp"
 #include "partition/multi_level_partition.hpp"
+#include "customizer/edge_based_graph.hpp"
 #include "storage/io.hpp"
 #include "storage/serialization.hpp"
 #include "storage/shared_datatype.hpp"
@@ -441,18 +442,16 @@ void Storage::PopulateLayout(DataLayout &layout)
             layout.SetBlockSize<char>(DataLayout::MLD_CELL_LEVEL_OFFSETS, 0);
         }
 
-        if (boost::filesystem::exists(config.edge_based_graph_path))
+        if (boost::filesystem::exists(config.mld_graph_path))
         {
-            io::FileReader ebg_file(config.edge_based_graph_path,
+            io::FileReader reader(config.mld_graph_path,
                                     io::FileReader::VerifyFingerprint);
 
-            const auto num_edges = ebg_file.ReadElementCount64();
-            const auto num_nodes = ebg_file.ReadOne<EdgeID>() + 1;
+            const auto num_nodes = reader.ReadVectorSize<customizer::StaticEdgeBasedGraph::NodeArrayEntry>();
+            const auto num_edges = reader.ReadVectorSize<customizer::StaticEdgeBasedGraph::EdgeArrayEntry>();
 
-            layout.SetBlockSize<EdgeBasedGraph::NodeArrayEntry>(DataLayout::MLD_GRAPH_NODE_LIST,
-                                                                num_nodes + 1);
-            layout.SetBlockSize<EdgeBasedGraph::EdgeArrayEntry>(DataLayout::MLD_GRAPH_EDGE_LIST,
-                                                                2 * num_edges);
+            layout.SetBlockSize<EdgeBasedGraph::NodeArrayEntry>(DataLayout::MLD_GRAPH_NODE_LIST, num_nodes);
+            layout.SetBlockSize<EdgeBasedGraph::EdgeArrayEntry>(DataLayout::MLD_GRAPH_EDGE_LIST, num_edges);
         }
         else
         {
@@ -929,39 +928,19 @@ void Storage::PopulateData(const DataLayout &layout, char *memory_ptr)
             reader.ReadInto(mld_cell_level_offsets_ptr, size);
         }
 
-        if (boost::filesystem::exists(config.edge_based_graph_path))
+        if (boost::filesystem::exists(config.mld_graph_path))
         {
-            io::FileReader reader(config.edge_based_graph_path, io::FileReader::VerifyFingerprint);
+            io::FileReader reader(config.mld_graph_path, io::FileReader::VerifyFingerprint);
 
-            const auto number_of_edges = reader.ReadElementCount64();
-            const auto number_of_nodes = reader.ReadOne<EdgeID>() + 1;
-            std::vector<extractor::EdgeBasedEdge> original_edges(number_of_edges);
-            reader.ReadInto(original_edges);
-
-            // FIXME: move graph pre-processing to a pre-processing tool #3783
-            original_edges = partition::splitBidirectionalEdges(std::move(original_edges));
-            auto edges = partition::prepareEdgesForUsageInGraph(std::move(original_edges));
-            BOOST_ASSERT(edges.size() <= 2 * number_of_edges);
-
-            auto nodes_ptr = layout.GetBlockPtr<EdgeBasedGraph::NodeArrayEntry, true>(
+            auto nodes_ptr = layout.GetBlockPtr<customizer::StaticEdgeBasedGraph::NodeArrayEntry, true>(
                 memory_ptr, DataLayout::MLD_GRAPH_NODE_LIST);
-            auto edges_ptr = layout.GetBlockPtr<EdgeBasedGraph::EdgeArrayEntry, true>(
+            auto edges_ptr = layout.GetBlockPtr<customizer::StaticEdgeBasedGraph::EdgeArrayEntry, true>(
                 memory_ptr, DataLayout::MLD_GRAPH_EDGE_LIST);
 
-            EdgeBasedGraph::EdgeIterator edge = 0;
-            for (const auto node : util::irange(0u, number_of_nodes + 1))
-            {
-                EdgeBasedGraph::EdgeIterator last_edge = edge;
-                while (edge < edges.size() && edges[edge].source == node)
-                {
-                    edges_ptr[edge].target = edges[edge].target;
-                    edges_ptr[edge].data = edges[edge].data;
-                    ++edge;
-                }
-                nodes_ptr[node].first_edge = last_edge;
-            }
-
-            BOOST_ASSERT(edge == edges.size());
+            auto num_nodes = reader.ReadElementCount64();
+            reader.ReadInto(nodes_ptr, num_nodes);
+            auto num_edges = reader.ReadElementCount64();
+            reader.ReadInto(edges_ptr, num_edges);
         }
     }
 }

@@ -3,6 +3,7 @@
 
 #include "partition/cell_storage.hpp"
 #include "partition/multi_level_partition.hpp"
+#include "partition/edge_based_graph.hpp"
 
 #include "storage/io.hpp"
 
