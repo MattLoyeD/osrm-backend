@@ -316,29 +316,27 @@ void updaterSegmentData(const UpdaterConfig &config,
         }
     }
 
-    const auto save_geometries = [&]() {
-        // Now save out the updated compressed geometries
-        extractor::io::write(config.geometry_path, segment_data);
-    };
-
-    const auto save_datastore_names = [&]() {
-        extractor::Datasources sources;
-        DatasourceID source = 0;
-        sources.SetSourceName(source++, "lua profile");
-
-        // Only write the filename, without path or extension.
-        // This prevents information leakage, and keeps names short
-        // for rendering in the debug tiles.
-        for (auto const &name : config.segment_speed_lookup_paths)
-        {
-            sources.SetSourceName(source++, boost::filesystem::path(name).stem().string());
-        }
-
-        extractor::io::write(config.datasource_names_path, sources);
-    };
-
-    tbb::parallel_invoke(save_geometries, save_datastore_names);
+    // Now save out the updated compressed geometries
+    extractor::io::write(config.geometry_path, segment_data);
 }
+
+void saveDatasourcesNames(const UpdaterConfig &config)
+{
+    extractor::Datasources sources;
+    DatasourceID source = 0;
+    sources.SetSourceName(source++, "lua profile");
+
+    // Only write the filename, without path or extension.
+    // This prevents information leakage, and keeps names short
+    // for rendering in the debug tiles.
+    for (auto const &name : config.segment_speed_lookup_paths)
+    {
+        sources.SetSourceName(source++, boost::filesystem::path(name).stem().string());
+    }
+
+    extractor::io::write(config.datasource_names_path, sources);
+}
+
 }
 
 EdgeID
@@ -591,6 +589,8 @@ Updater::LoadAndUpdateEdgeExpandedGraph(std::vector<extractor::EdgeBasedEdge> &e
         checkWeightsConsistency(config, edge_based_edge_list);
     }
 #endif
+
+    saveDatasourcesNames(config);
 
     util::Log() << "Done reading edges";
     return graph_header.max_edge_id;
